@@ -136,7 +136,25 @@ Os vídeos passam a ter o personagem falando, com a foto do produto em destaque.
 Sem isso, o vídeo usa as fotos do produto, o texto na tela e a voz do personagem
 (`narracao.modo = "edge-tts"`).
 
-## A planilha de produtos (passo 2)
+## Seus links (passo 2, jeito rápido)
+
+No app: **Mercado de produtos → Compartilhar → Copiar link**. Cole em
+`dados/meus_links.txt`, um produto por linha:
+
+```
+nome | preço | quanto ganha | categoria | link
+Kit 2 Body Splash Árabe Ayra | 33,63 | 4,04 | beleza | https://vt.tiktok.com/...
+```
+
+```bash
+python -m achadinhos importar-links dados/meus_links.txt
+```
+
+- Só o link também é aceito, mas o produto fica "incompleto" até ter nome.
+- Rodar de novo atualiza pelo link, sem duplicar.
+- Nota e vendas não informadas não reprovam o produto.
+
+## A planilha de produtos (passo 2, completa)
 
 O TikTok Shop não tem API pública de catálogo para afiliados. Por isso, monte a
 planilha a partir do **Centro de Afiliados**, no app ou em

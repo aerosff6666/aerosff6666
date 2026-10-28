@@ -239,3 +239,30 @@ def test_duelo_gera_video_com_os_dois(cfg):
     assert set(pacote["duelo"]) == {"bia", "rafa"}
     assert {c["personagem"] for c in pacote["roteiro"]["cenas"]} == {"bia", "rafa"}
     assert len(pipeline.links_do_conteudo(con, {"pacote": pacote, "produto_id": 0})) == 2
+
+
+def test_ler_linha_de_link():
+    completa = coleta.ler_linha_de_link("Kit 2 Body Splash Ayra | 33,63 | 4,04 | Beleza | https://vt.tiktok.com/ABC/")
+    assert completa == {"titulo": "Kit 2 Body Splash Ayra", "preco": 33.63, "comissao_pct": 12.0,
+                        "categoria": "beleza", "url_afiliado": "https://vt.tiktok.com/ABC/"}
+    so_link = coleta.ler_linha_de_link(" |  |  |  | https://vt.tiktok.com/XYZ/")
+    assert so_link["titulo"] == "" and so_link["url_afiliado"] == "https://vt.tiktok.com/XYZ/"
+    compartilhado = coleta.ler_linha_de_link("Confira este produto: Inflador portátil https://vt.tiktok.com/Q1/")
+    assert compartilhado["titulo"] == "Confira este produto: Inflador portátil"
+    assert coleta.ler_linha_de_link("sem link aqui") is None
+
+
+def test_importar_links_e_completar_depois(cfg, tmp_path):
+    con = conectar(cfg)
+    arquivo = tmp_path / "links.txt"
+    arquivo.write_text("# comentário\n | | | | https://vt.tiktok.com/A/\nhttps://vt.tiktok.com/B/\n", encoding="utf-8")
+    assert coleta.importar_links(con, arquivo) == (2, 0, 2)
+    ranking.ranquear(con, cfg["ranking"])
+    assert {r[0] for r in con.execute("SELECT status FROM produtos")} == {"incompleto"}
+
+    arquivo.write_text("Body splash Ayra | 33,63 | 4,04 | beleza | https://vt.tiktok.com/A/\n", encoding="utf-8")
+    assert coleta.importar_links(con, arquivo) == (0, 1, 0)
+    ranking.ranquear(con, cfg["ranking"])
+    linha = con.execute("SELECT * FROM produtos WHERE url_afiliado LIKE '%/A/'").fetchone()
+    # Sem nota e sem vendas informadas, o produto não é reprovado por isso.
+    assert linha["status"] == "aprovado" and linha["comissao_pct"] == 12.0

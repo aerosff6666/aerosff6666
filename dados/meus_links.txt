@@ -1,0 +1,16 @@
+# Seus produtos do TikTok Shop (Mercado de produtos → Compartilhar → Copiar link).
+# Um por linha:  nome | preço | quanto ganha | categoria | link
+#   - "quanto ganha" é o valor do "Ganhe R$ ..." no Mercado de produtos
+#   - categoria: beleza, moda, casa, cozinha (Bia) | eletronicos, ferramentas, pets, automotivo (Rafa)
+# Exemplo:
+#   Kit 2 Body Splash Árabe Ayra | 33,63 | 4,04 | beleza | https://vt.tiktok.com/...
+# Linhas só com o link ficam esperando o nome (não viram vídeo até você completar).
+# Depois de editar:  python -m achadinhos importar-links dados/meus_links.txt
+
+ |  |  |  | https://vt.tiktok.com/ZS9yD8PBayfHn-U3ipI/
+ |  |  |  | https://vt.tiktok.com/ZS9yD8mJcb4v3-1RHMJ/
+ |  |  |  | https://vt.tiktok.com/ZS9yD8msV7EHY-im0ld/
+ |  |  |  | https://vt.tiktok.com/ZS9yD8xxA8ftw-dvSGr/
+ |  |  |  | https://vt.tiktok.com/ZS9yD84xuArnT-2SabH/
+ |  |  |  | https://vt.tiktok.com/ZS9yD84wfDWLw-HbnrM/
+ |  |  |  | https://vt.tiktok.com/ZS9yD87hREGVH-DADnd/

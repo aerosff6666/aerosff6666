@@ -16,6 +16,9 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("importar", help="passo 2: importa produtos de um CSV")
     p.add_argument("csv")
 
+    p = sub.add_parser("importar-links", help="passo 2: importa links colados do botão Compartilhar")
+    p.add_argument("arquivo", help="arquivo de texto, ou - para colar no terminal")
+
     p = sub.add_parser("ranquear", help="passo 3: filtra e ordena os produtos")
     p.add_argument("--top", type=int, default=10)
 
@@ -64,12 +67,18 @@ def main(argv: list[str] | None = None) -> None:
     if args.comando == "importar":
         novos, atualizados = coleta.importar_csv(con, args.csv)
         print(f"{novos} produtos novos, {atualizados} atualizados.")
+    elif args.comando == "importar-links":
+        novos, atualizados, sem_nome = coleta.importar_links(con, args.arquivo)
+        print(f"{novos} produtos novos, {atualizados} atualizados.")
+        if sem_nome:
+            print(f"{sem_nome} links sem nome: complete as linhas no formato "
+                  "'nome | preço | quanto ganha | categoria | link' e importe de novo.")
     elif args.comando == "ranquear":
         regras = cfg["ranking"]
         for p in ranking.ranquear(con, regras)[: args.top]:
             print(f"{p['score']:6.1f}  #{p['id']:<4} R$ {p['preco']:>8.2f}  {p['comissao_pct']:>4.1f}%  {p['titulo']}")
-        for r in con.execute("SELECT * FROM produtos WHERE status = 'reprovado'"):
-            print(f"  reprovado #{r['id']} {r['titulo']}: {ranking.motivo_reprovacao(dict(r), regras)}")
+        for r in con.execute("SELECT * FROM produtos WHERE status IN ('reprovado', 'incompleto')"):
+            print(f"  {r['status']} #{r['id']} {r['titulo']}: {ranking.motivo_reprovacao(dict(r), regras)}")
     elif args.comando == "gerar":
         criados = pipeline.gerar(con, cfg, args.quantidade)
         if criados and cfg["publicacao"]["aprovacao_manual"]:

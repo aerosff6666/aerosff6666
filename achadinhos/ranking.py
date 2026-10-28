@@ -7,13 +7,16 @@ from achadinhos.personagens import normalizar
 
 
 def motivo_reprovacao(p: dict, regras: dict) -> str | None:
-    if not regras["preco_min"] <= p["preco"] <= regras["preco_max"]:
+    """Campos em zero contam como "não informado" e não reprovam o produto."""
+    if not p["titulo"].strip():
+        return "sem nome (complete a linha do link)"
+    if p["preco"] and not regras["preco_min"] <= p["preco"] <= regras["preco_max"]:
         return "preço fora da faixa"
-    if p["comissao_pct"] < regras["comissao_min_pct"]:
+    if p["comissao_pct"] and p["comissao_pct"] < regras["comissao_min_pct"]:
         return "comissão baixa"
-    if p["nota"] < regras["nota_min"]:
+    if p["nota"] and p["nota"] < regras["nota_min"]:
         return "nota baixa"
-    if p["vendas"] < regras["vendas_min"]:
+    if p["vendas"] and p["vendas"] < regras["vendas_min"]:
         return "poucas vendas"
     return None
 
@@ -29,7 +32,8 @@ def calcular_scores(produtos: list[dict], regras: dict) -> dict[int, float]:
     max_vendas = max(vendas.values()) or 1
     scores = {}
     for p in aprovados:
-        nota = (p["nota"] - regras["nota_min"]) / max(5 - regras["nota_min"], 0.01)
+        # Nota não informada vale o meio da escala.
+        nota = (p["nota"] - regras["nota_min"]) / max(5 - regras["nota_min"], 0.01) if p["nota"] else 0.5
         s = (
             regras["peso_ganho_por_venda"] * ganho[p["id"]] / max_ganho
             + regras["peso_vendas"] * vendas[p["id"]] / max_vendas
@@ -68,8 +72,11 @@ def ranquear(con: sqlite3.Connection, regras: dict) -> list[dict]:
                 fator = 0.8 + 0.4 * desempenho.get(normalizar(p["categoria"]), 0)
                 scores[p["id"]] = round(scores[p["id"]] * fator, 1)
     for p in produtos:
-        if p["status"] in ("novo", "reprovado", "aprovado"):
-            status = "aprovado" if p["id"] in scores else "reprovado"
+        if p["status"] in ("novo", "reprovado", "aprovado", "incompleto"):
+            if not p["titulo"].strip():
+                status = "incompleto"
+            else:
+                status = "aprovado" if p["id"] in scores else "reprovado"
         else:
             status = p["status"]
         con.execute(

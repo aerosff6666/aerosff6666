@@ -7,7 +7,9 @@ ferramenta de pesquisa de produtos). Colunas aceitas estão em COLUNAS.
 
 import csv
 import json
+import re
 import sqlite3
+import sys
 from pathlib import Path
 
 # nome no banco -> nomes aceitos no cabeçalho do CSV
@@ -126,3 +128,63 @@ def importar_vendas(con: sqlite3.Connection, caminho: str | Path) -> int:
             novas += cur.rowcount
     con.commit()
     return novas
+
+
+URL = re.compile(r"https?://\S+")
+
+
+def ler_linha_de_link(linha: str) -> dict | None:
+    """Aceita "nome | preço | quanto ganha | categoria | link", só o link, ou o texto
+    que o botão Compartilhar copia ("Confira ... https://vt.tiktok.com/...")."""
+    achado = URL.search(linha)
+    if not achado:
+        return None
+    url = achado.group(0).rstrip(".,;)")
+    antes = linha[: achado.start()].strip().rstrip("|").strip()
+    campos = [c.strip() for c in antes.split("|")] if "|" in antes else [antes]
+    campos += [""] * (4 - len(campos))
+    nome, preco, ganha, categoria = campos[:4]
+    preco_n = _numero(preco) if preco else 0.0
+    ganha_n = _numero(ganha) if ganha else 0.0
+    return {
+        "titulo": nome,
+        "preco": preco_n,
+        # O Mercado de produtos mostra quanto você ganha em reais; aqui vira percentual.
+        "comissao_pct": round(100 * ganha_n / preco_n, 1) if preco_n and ganha_n else 0.0,
+        "categoria": categoria.lower(),
+        "url_afiliado": url,
+    }
+
+
+def importar_links(con: sqlite3.Connection, caminho: str | Path) -> tuple[int, int, int]:
+    """Importa a lista de links colados. Devolve (novos, atualizados, sem_nome).
+
+    Produtos sem nome ficam como 'incompleto' e não entram nos vídeos até você
+    completar a linha (rodar de novo atualiza pelo link).
+    """
+    novos = atualizados = sem_nome = 0
+    texto = sys.stdin.read() if str(caminho) == "-" else Path(caminho).read_text(encoding="utf-8")
+    for linha in texto.splitlines():
+        if linha.lstrip().startswith("#"):
+            continue
+        p = ler_linha_de_link(linha)
+        if not p:
+            continue
+        sem_nome += not p["titulo"]
+        existe = con.execute("SELECT * FROM produtos WHERE url_afiliado = ?", (p["url_afiliado"],)).fetchone()
+        if existe:
+            # Só sobrescreve o que veio preenchido.
+            novos_dados = {k: v for k, v in p.items() if v} | {"url_afiliado": p["url_afiliado"]}
+            sets = ", ".join(f"{k} = ?" for k in novos_dados if k != "url_afiliado")
+            if sets:
+                con.execute(f"UPDATE produtos SET {sets} WHERE url_afiliado = ?",
+                            [v for k, v in novos_dados.items() if k != "url_afiliado"] + [p["url_afiliado"]])
+            atualizados += 1
+        else:
+            con.execute(
+                "INSERT INTO produtos (titulo, preco, comissao_pct, categoria, url_afiliado) VALUES (?, ?, ?, ?, ?)",
+                (p["titulo"], p["preco"], p["comissao_pct"], p["categoria"], p["url_afiliado"]),
+            )
+            novos += 1
+    con.commit()
+    return novos, atualizados, sem_nome
