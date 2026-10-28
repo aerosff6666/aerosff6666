@@ -25,6 +25,14 @@ def carregar_config(caminho: str | Path = "config.toml") -> dict:
     with caminho.open("rb") as f:
         cfg = tomllib.load(f)
     cfg["_raiz"] = str(caminho.parent.resolve())
+    arquivo_personagens = caminho.parent / "personagens.toml"
+    if arquivo_personagens.exists():
+        with arquivo_personagens.open("rb") as f:
+            extra = tomllib.load(f)
+        cfg["personagens"] = extra.get("personagens", [])
+        cfg["duelo"] = extra.get("duelo", {})
+    cfg.setdefault("personagens", [])
+    cfg.setdefault("duelo", {})
     return cfg
 
 

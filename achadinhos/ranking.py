@@ -3,6 +3,8 @@
 import math
 import sqlite3
 
+from achadinhos.personagens import normalizar
+
 
 def motivo_reprovacao(p: dict, regras: dict) -> str | None:
     if not regras["preco_min"] <= p["preco"] <= regras["preco_max"]:
@@ -37,10 +39,34 @@ def calcular_scores(produtos: list[dict], regras: dict) -> dict[int, float]:
     return scores
 
 
+def desempenho_categorias(con: sqlite3.Connection) -> dict[str, float]:
+    """Comissão acumulada por categoria, de 0 a 1 (1 = categoria que mais rendeu)."""
+    totais: dict[str, float] = {}
+    for r in con.execute(
+        "SELECT p.categoria, SUM(v.comissao) total FROM vendas v"
+        " JOIN produtos p ON p.url_afiliado = v.url_afiliado GROUP BY p.categoria"
+    ):
+        cat = normalizar(r["categoria"])
+        totais[cat] = totais.get(cat, 0) + (r["total"] or 0)
+    maior = max(totais.values(), default=0)
+    return {c: t / maior for c, t in totais.items()} if maior else {}
+
+
 def ranquear(con: sqlite3.Connection, regras: dict) -> list[dict]:
-    """Atualiza score e status de todos os produtos e devolve os aprovados em ordem."""
+    """Atualiza score e status de todos os produtos e devolve os aprovados em ordem.
+
+    Depois que há vendas importadas, categorias que renderam comissão ganham até +20%
+    no score e as que ainda não venderam perdem 20% (o sorteio de exploração em
+    pipeline.gerar garante que elas continuem sendo testadas).
+    """
     produtos = [dict(r) for r in con.execute("SELECT * FROM produtos")]
     scores = calcular_scores(produtos, regras)
+    desempenho = desempenho_categorias(con)
+    if desempenho:
+        for p in produtos:
+            if p["id"] in scores:
+                fator = 0.8 + 0.4 * desempenho.get(normalizar(p["categoria"]), 0)
+                scores[p["id"]] = round(scores[p["id"]] * fator, 1)
     for p in produtos:
         if p["status"] in ("novo", "reprovado", "aprovado"):
             status = "aprovado" if p["id"] in scores else "reprovado"

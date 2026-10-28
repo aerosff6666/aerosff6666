@@ -1,55 +1,108 @@
 """Junta os 12 passos: ranquear -> gerar conteúdo -> aprovar -> publicar -> relatório."""
 
 import json
+import random
 import shutil
 import sqlite3
 from pathlib import Path
 
-from achadinhos import conteudo, narracao, ranking, video
+from achadinhos import avatar, conteudo, narracao, personagens, ranking, video
 from achadinhos.config import pasta
 from achadinhos.db import conteudo_dict, produto_dict
 from achadinhos.ia import IA
 from achadinhos.publicar import ErroPublicacao, instagram, telegram, tiktok
 
 
+def _escolher_produtos(con: sqlite3.Connection, cfg: dict, quantidade: int) -> list[dict]:
+    """Os melhores por score, com ~20% de vagas para categorias que ainda não venderam."""
+    ranking.ranquear(con, cfg["ranking"])
+    aprovados = [produto_dict(r) for r in con.execute(
+        "SELECT * FROM produtos WHERE status = 'aprovado' ORDER BY score DESC")]
+    desempenho = ranking.desempenho_categorias(con)
+    if not desempenho:
+        return aprovados[:quantidade]
+    n_explorar = max(1, round(quantidade * 0.2)) if quantidade >= 2 else 0
+    escolhidos = aprovados[: quantidade - n_explorar]
+    sem_vendas = [p for p in aprovados[len(escolhidos):]
+                  if personagens.normalizar(p["categoria"]) not in desempenho]
+    restantes = [p for p in aprovados[len(escolhidos):] if p not in sem_vendas]
+    escolhidos += random.sample(sem_vendas, min(n_explorar, len(sem_vendas)))
+    return escolhidos + restantes[: quantidade - len(escolhidos)]
+
+
+def _salvar_conteudo(con, cfg, produto_id, pacote, origem, personagem_id, imagens, dir_base) -> int:
+    legenda = conteudo.montar_legenda(pacote, cfg, personagens.por_id(cfg, personagem_id))
+    pacote["origem"] = origem
+    cur = con.execute(
+        "INSERT INTO conteudos (produto_id, pacote, legenda, personagem) VALUES (?, ?, ?, ?)",
+        (produto_id, json.dumps(pacote, ensure_ascii=False), legenda, personagem_id),
+    )
+    cid = cur.lastrowid
+    pasta_c = dir_base / str(cid)
+    pasta_c.mkdir(exist_ok=True)
+    por_id = {p["id"]: p for p in cfg["personagens"]}
+    cenas = pacote["roteiro"]["cenas"]
+    personagem = por_id.get(personagem_id)
+    cache = pasta(cfg, "cache")
+    if avatar.disponivel(personagem) and cfg.get("avatar", {}).get("ativo", True):
+        clipe = avatar.gerar_clipe(" ".join(c["narracao"] for c in cenas), personagem, pasta_c / "avatar.mp4", cfg)
+        arquivo = video.video_com_avatar(clipe, imagens, pasta_c, cfg, cache, personagem)
+    else:
+        audio = narracao.gerar_narracao(cenas, pasta_c / "narracao.mp3", cfg)
+        arquivo = video.montar_video(pacote, imagens, audio, pasta_c, cfg, cache, por_id)
+    (pasta_c / "legenda.txt").write_text(legenda, encoding="utf-8")
+    (pasta_c / "roteiro.json").write_text(json.dumps(pacote, ensure_ascii=False, indent=2), encoding="utf-8")
+    status = "gerado" if cfg["publicacao"]["aprovacao_manual"] else "aprovado"
+    con.execute("UPDATE conteudos SET video = ?, status = ? WHERE id = ?", (str(arquivo), status, cid))
+    con.commit()
+    print(f"  ✓ conteúdo #{cid} ({origem}, {personagem['nome'] if personagem else 'duelo/sem personagem'}): {arquivo}")
+    return cid
+
+
 def gerar(con: sqlite3.Connection, cfg: dict, quantidade: int) -> list[int]:
     """Passos 3 a 8 para os melhores produtos ainda sem vídeo. Devolve os ids dos conteúdos."""
-    ranking.ranquear(con, cfg["ranking"])
-    produtos = [
-        produto_dict(r)
-        for r in con.execute(
-            "SELECT * FROM produtos WHERE status = 'aprovado' ORDER BY score DESC LIMIT ?",
-            (quantidade,),
-        )
-    ]
     ia = IA(cfg)
-    saida, cache = pasta(cfg, "saida"), pasta(cfg, "cache")
+    saida = pasta(cfg, "saida")
     criados = []
-    for p in produtos:
-        print(f"→ {p['titulo']} (score {p['score']})")
-        pacote, origem = conteudo.gerar_pacote(p, cfg, ia)
-        pacote["origem"] = origem
-        legenda = conteudo.montar_legenda(pacote, cfg)
-        cur = con.execute(
-            "INSERT INTO conteudos (produto_id, pacote, legenda) VALUES (?, ?, ?)",
-            (p["id"], json.dumps(pacote, ensure_ascii=False), legenda),
-        )
-        cid = cur.lastrowid
-        dir_conteudo = saida / str(cid)
-        dir_conteudo.mkdir(exist_ok=True)
-        roteiro = pacote["roteiro"]
-        texto_narracao = " ".join(c["narracao"] for c in roteiro["cenas"])
-        audio = narracao.gerar_narracao(texto_narracao, dir_conteudo / "narracao.mp3", cfg)
-        arquivo = video.montar_video(pacote, p["imagens"], audio, dir_conteudo, cfg, cache)
-        (dir_conteudo / "legenda.txt").write_text(legenda, encoding="utf-8")
-        (dir_conteudo / "roteiro.json").write_text(json.dumps(pacote, ensure_ascii=False, indent=2), encoding="utf-8")
-        status = "gerado" if cfg["publicacao"]["aprovacao_manual"] else "aprovado"
-        con.execute("UPDATE conteudos SET video = ?, status = ? WHERE id = ?", (str(arquivo), status, cid))
+    for p in _escolher_produtos(con, cfg, quantidade):
+        personagem = personagens.escolher(p, cfg)
+        print(f"→ {p['titulo']} (score {p['score']}) com {personagem['nome'] if personagem else 'narrador'}")
+        pacote, origem = conteudo.gerar_pacote(p, cfg, ia, personagem)
+        cid = _salvar_conteudo(con, cfg, p["id"], pacote, origem,
+                               personagem["id"] if personagem else None, p["imagens"], saida)
         con.execute("UPDATE produtos SET status = 'usado' WHERE id = ?", (p["id"],))
         con.commit()
-        print(f"  ✓ conteúdo #{cid} ({origem}): {arquivo}")
         criados.append(cid)
     return criados
+
+
+def gerar_duelo(con: sqlite3.Connection, cfg: dict) -> int | None:
+    """Um vídeo com os dois primeiros personagens, cada um defendendo o melhor produto da sua área."""
+    if len(cfg["personagens"]) < 2:
+        print("O duelo precisa de dois personagens em personagens.toml.")
+        return None
+    ranking.ranquear(con, cfg["ranking"])
+    aprovados = [produto_dict(r) for r in con.execute(
+        "SELECT * FROM produtos WHERE status = 'aprovado' ORDER BY score DESC")]
+    dupla = cfg["personagens"][:2]
+    produtos = []
+    for pers in dupla:
+        candidato = next((p for p in aprovados if personagens.escolher(p, cfg) is pers and p not in produtos), None)
+        if candidato is None:
+            candidato = next((p for p in aprovados if p not in produtos), None)
+        if candidato is None:
+            print("Faltam produtos aprovados para o duelo.")
+            return None
+        produtos.append(candidato)
+    print(f"→ Duelo: {produtos[0]['titulo']} x {produtos[1]['titulo']}")
+    pacote, origem = conteudo.gerar_pacote_duelo(produtos, dupla, cfg, IA(cfg))
+    pacote["duelo"] = {pers["id"]: prod["id"] for pers, prod in zip(dupla, produtos)}
+    imagens = [i for prod in produtos for i in prod["imagens"][:2]]
+    cid = _salvar_conteudo(con, cfg, produtos[0]["id"], pacote, origem, None, imagens, pasta(cfg, "saida"))
+    for prod in produtos:
+        con.execute("UPDATE produtos SET status = 'usado' WHERE id = ?", (prod["id"],))
+    con.commit()
+    return cid
 
 
 def mudar_status(con: sqlite3.Connection, ids: list[int], status: str) -> None:
@@ -57,6 +110,13 @@ def mudar_status(con: sqlite3.Connection, ids: list[int], status: str) -> None:
     for cid in ids:
         con.execute("UPDATE conteudos SET status = ? WHERE id = ? AND status = 'gerado'", (status, cid))
     con.commit()
+
+
+def links_do_conteudo(con: sqlite3.Connection, c: dict) -> list[tuple[str, str]]:
+    ids = list(c["pacote"].get("duelo", {}).values()) or [c["produto_id"]]
+    linhas = {r["id"]: r for r in con.execute(
+        f"SELECT id, titulo, url_afiliado FROM produtos WHERE id IN ({','.join('?' * len(ids))})", ids)}
+    return [(linhas[i]["titulo"], linhas[i]["url_afiliado"]) for i in ids if i in linhas]
 
 
 def _ja_publicado(con: sqlite3.Connection, cid: int, plataforma: str) -> bool:
@@ -92,10 +152,12 @@ def publicar(con: sqlite3.Connection, cfg: dict, plataformas: list[str], simular
                 if plataforma == "tiktok":
                     id_externo = tiktok.publicar(arquivo, c["legenda"], pub["tiktok_modo"])
                 elif plataforma == "instagram":
+                    cta = cfg["duelo"].get("chamada") if "duelo" in c["pacote"] else cfg["respostas"]["cta_instagram"]
+                    legenda = f"{cta}\n\n{c['legenda']}" if cta else c["legenda"]
                     nome = f"{c['id']}.mp4"
-                    id_externo = instagram.publicar(arquivo, c["legenda"], pub["url_publica_base"], nome)
+                    id_externo = instagram.publicar(arquivo, legenda, pub["url_publica_base"], nome)
                 elif plataforma == "telegram":
-                    id_externo = telegram.publicar(arquivo, c["legenda"], c["url_afiliado"])
+                    id_externo = telegram.publicar(arquivo, c["legenda"], links_do_conteudo(con, c))
                 else:
                     raise ErroPublicacao(f"plataforma desconhecida: {plataforma}")
                 status, detalhe = "ok", None

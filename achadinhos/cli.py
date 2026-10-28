@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from achadinhos import coleta, pipeline, ranking
+from achadinhos import campanhas, coleta, instagram_bot, pipeline, ranking, telegram_bot
 from achadinhos.config import carregar_config
 from achadinhos.db import conectar, conteudo_dict
 
@@ -21,6 +21,20 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("gerar", help="passos 3 a 8: raio-x, roteiro, legenda, narração e vídeo")
     p.add_argument("--quantidade", type=int, default=3)
+
+    sub.add_parser("duelo", help="vídeo com os dois personagens disputando o voto do público")
+
+    p = sub.add_parser("importar-vendas", help="importa as vendas do Centro de Afiliados (o ranking aprende)")
+    p.add_argument("csv")
+
+    p = sub.add_parser("campanha", help="campanhas no grupo do Telegram")
+    p.add_argument("tipo", choices=["oferta", "enquete", "convite"])
+    p.add_argument("--simular", action="store_true")
+
+    sub.add_parser("telegram-bot", help="bot do Telegram que responde e manda links (fica rodando)")
+
+    p = sub.add_parser("instagram-bot", help="webhook: comentou EU QUERO, recebe o link no direct (fica rodando)")
+    p.add_argument("--porta", type=int, default=8080)
 
     p = sub.add_parser("listar", help="mostra os conteúdos gerados")
     p.add_argument("--status", choices=["gerado", "aprovado", "rejeitado", "publicado"])
@@ -60,6 +74,24 @@ def main(argv: list[str] | None = None) -> None:
         criados = pipeline.gerar(con, cfg, args.quantidade)
         if criados and cfg["publicacao"]["aprovacao_manual"]:
             print(f"\nAssista os vídeos em saida/<id>/video.mp4 e aprove com: achadinhos aprovar {' '.join(map(str, criados))}")
+    elif args.comando == "duelo":
+        cid = pipeline.gerar_duelo(con, cfg)
+        if cid and cfg["publicacao"]["aprovacao_manual"]:
+            print(f"\nAssista saida/{cid}/video.mp4 e aprove com: achadinhos aprovar {cid}")
+    elif args.comando == "importar-vendas":
+        print(f"{coleta.importar_vendas(con, args.csv)} vendas novas importadas.")
+        for categoria, peso in sorted(ranking.desempenho_categorias(con).items(), key=lambda x: -x[1]):
+            print(f"  {categoria or '(sem categoria)':<15} {'█' * round(peso * 20)}")
+    elif args.comando == "campanha":
+        if args.tipo == "convite":
+            print(campanhas.convite(cfg))
+        else:
+            texto = getattr(campanhas, args.tipo)(con, cfg, simular=args.simular)
+            print(("(simulação)\n" if args.simular else "Enviado:\n") + texto)
+    elif args.comando == "telegram-bot":
+        telegram_bot.rodar(cfg)
+    elif args.comando == "instagram-bot":
+        instagram_bot.rodar(cfg, args.porta)
     elif args.comando == "listar":
         sql = "SELECT c.*, p.titulo FROM conteudos c JOIN produtos p ON p.id = c.produto_id"
         params = ()
@@ -68,7 +100,8 @@ def main(argv: list[str] | None = None) -> None:
             params = (args.status,)
         for linha in con.execute(sql + " ORDER BY c.id", params):
             c = conteudo_dict(linha)
-            print(f"#{c['id']:<4} [{c['status']}] {linha['titulo']}\n      gancho: {c['pacote']['roteiro']['gancho']}\n      {c['video']}")
+            quem = c.get("personagem") or ("duelo" if "duelo" in c["pacote"] else "-")
+            print(f"#{c['id']:<4} [{c['status']}] ({quem}) {linha['titulo']}\n      gancho: {c['pacote']['roteiro']['gancho']}\n      {c['video']}")
     elif args.comando in ("aprovar", "rejeitar"):
         pipeline.mudar_status(con, args.ids, "aprovado" if args.comando == "aprovar" else "rejeitado")
         print("ok")

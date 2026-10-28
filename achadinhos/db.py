@@ -37,13 +37,46 @@ CREATE TABLE IF NOT EXISTS publicacoes (
     detalhe TEXT,
     criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS vendas (
+    id INTEGER PRIMARY KEY,
+    url_afiliado TEXT NOT NULL,
+    comissao REAL NOT NULL,
+    data TEXT NOT NULL,
+    pedido TEXT NOT NULL DEFAULT '',
+    UNIQUE (url_afiliado, data, comissao, pedido)
+);
+CREATE TABLE IF NOT EXISTS interacoes (
+    id INTEGER PRIMARY KEY,
+    plataforma TEXT NOT NULL,
+    id_externo TEXT NOT NULL UNIQUE,
+    usuario TEXT,
+    entrada TEXT,
+    resposta TEXT,
+    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS campanhas (
+    id INTEGER PRIMARY KEY,
+    tipo TEXT NOT NULL,
+    produto_id INTEGER REFERENCES produtos(id),
+    detalhe TEXT,
+    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
+
+# Colunas adicionadas depois da primeira versão (bancos antigos recebem via ALTER TABLE).
+MIGRACOES = [
+    ("conteudos", "personagem", "TEXT"),
+]
 
 
 def conectar(cfg: dict) -> sqlite3.Connection:
     con = sqlite3.connect(Path(cfg["_raiz"]) / "achadinhos.db")
     con.row_factory = sqlite3.Row
     con.executescript(ESQUEMA)
+    for tabela, coluna, tipo in MIGRACOES:
+        colunas = {r["name"] for r in con.execute(f"PRAGMA table_info({tabela})")}
+        if coluna not in colunas:
+            con.execute(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}")
     return con
 
 

@@ -50,3 +50,17 @@ url_publica_base = ""
 [divulgacao]
 # Obrigatório por lei (CONAR/CDC) e pelas regras das plataformas.
 aviso = "#publi Link de afiliado: posso ganhar comissão se você comprar."
+
+[respostas]
+# Palavras que, num comentário do Instagram, disparam o envio do link no direct.
+palavras_link = ["quero", "eu quero", "link", "manda", "onde compra", "quanto"]
+cta_instagram = "💬 Comenta EU QUERO que eu te mando o link no direct!"
+mensagem_link = "Oi, {nome}! Aqui está o link do {produto}: {link}\n\n#publi link de afiliado: posso ganhar comissão se você comprar."
+resposta_publica = "Te mandei no direct! 📩"
+# Limite de respostas automáticas por pessoa por dia (evita parecer spam).
+max_por_pessoa_dia = 5
+
+[grupo]
+# Link de convite do grupo/canal do Telegram (aparece nas respostas e nas campanhas).
+link = ""
+boas_vindas = true

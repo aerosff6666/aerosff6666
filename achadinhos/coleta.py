@@ -86,3 +86,43 @@ def importar_csv(con: sqlite3.Connection, caminho: str | Path) -> tuple[int, int
                 novos += 1
     con.commit()
     return novos, atualizados
+
+
+COLUNAS_VENDAS = {
+    "url_afiliado": ["url_afiliado", "link", "url", "link_afiliado"],
+    "titulo": ["titulo", "título", "produto", "nome", "product"],
+    "comissao": ["comissao", "comissão", "comissao_estimada", "commission", "valor_comissao"],
+    "data": ["data", "date", "data_pedido"],
+    "pedido": ["pedido", "id_pedido", "order_id", "numero_pedido"],
+}
+
+
+def importar_vendas(con: sqlite3.Connection, caminho: str | Path) -> int:
+    """Importa vendas do Centro de Afiliados (planilha) para o ranking aprender o que converte.
+
+    Cada linha precisa do link de afiliado ou do título exato do produto, e da comissão.
+    Com a coluna de número do pedido, reimportar a mesma planilha não duplica vendas.
+    """
+    novas = 0
+    with open(caminho, encoding="utf-8-sig", newline="") as f:
+        leitor = csv.DictReader(f)
+        normalizado = {c.strip().lower(): c for c in leitor.fieldnames or []}
+        mapa = {campo: normalizado[n] for campo, nomes in COLUNAS_VENDAS.items()
+                for n in nomes if n in normalizado}
+        if "comissao" not in mapa or not ({"url_afiliado", "titulo"} & mapa.keys()):
+            raise ValueError("planilha de vendas precisa de comissao e de url_afiliado ou titulo")
+        for linha in leitor:
+            get = lambda campo: (linha.get(mapa[campo]) or "").strip() if campo in mapa else ""
+            url = get("url_afiliado")
+            if not url and get("titulo"):
+                achado = con.execute("SELECT url_afiliado FROM produtos WHERE titulo = ?", (get("titulo"),)).fetchone()
+                url = achado[0] if achado else ""
+            if not url:
+                continue
+            cur = con.execute(
+                "INSERT OR IGNORE INTO vendas (url_afiliado, comissao, data, pedido) VALUES (?, ?, ?, ?)",
+                (url, _numero(get("comissao")), get("data") or "sem data", get("pedido")),
+            )
+            novas += cur.rowcount
+    con.commit()
+    return novas
