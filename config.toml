@@ -1,0 +1,52 @@
+# Configuração do agente de achadinhos (passo 1: nicho e regras).
+# Segredos (tokens, chaves) ficam no arquivo .env — veja .env.example.
+
+[nicho]
+nome = "achadinhos de casa e cozinha"
+publico = "mulheres e homens de 20 a 45 anos que gostam de praticidade e de economizar"
+tom = "animado, direto, linguagem de quem indica para um amigo, sem exagero"
+idioma = "pt-BR"
+
+[ranking]
+preco_min = 15.0
+preco_max = 250.0
+comissao_min_pct = 8.0
+nota_min = 4.3
+vendas_min = 50
+# Pesos do score (0 a 1). O score final vai de 0 a 100.
+peso_ganho_por_venda = 0.40
+peso_vendas = 0.35
+peso_nota = 0.25
+
+[ia]
+# Sem ANTHROPIC_API_KEY no .env, o agente usa modelos de texto prontos (sem custo).
+modelo = "claude-opus-5-5"
+esforco = "medium"   # low | medium | high
+
+[narracao]
+# nenhuma  -> vídeo só com texto na tela e áudio mudo
+# edge-tts -> voz sintética gratuita (pip install edge-tts; usa serviço online não oficial)
+# arquivo  -> você grava a sua voz e salva em saida/<id>/narracao.mp3 (o que mais engaja)
+modo = "nenhuma"
+voz = "pt-BR-FranciscaNeural"
+
+[video]
+largura = 1080
+altura = 1920
+segundos_por_cena = 3.0
+fps = 30
+fonte = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+[publicacao]
+# true = nada é postado sem você aprovar (recomendado).
+aprovacao_manual = true
+# tiktok: "rascunho" envia para a caixa de entrada do app (você adiciona o link
+# do produto e posta); "direto" posta na hora (exige app auditado pelo TikTok).
+tiktok_modo = "rascunho"
+plataformas = ["tiktok", "instagram", "telegram"]
+# Instagram exige o vídeo numa URL pública. Ex.: "https://meu-bucket.s3.amazonaws.com/videos"
+url_publica_base = ""
+
+[divulgacao]
+# Obrigatório por lei (CONAR/CDC) e pelas regras das plataformas.
+aviso = "#publi Link de afiliado: posso ganhar comissão se você comprar."

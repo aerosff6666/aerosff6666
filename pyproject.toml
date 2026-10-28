@@ -1,0 +1,16 @@
+[project]
+name = "achadinhos"
+version = "0.1.0"
+description = "Agente de achadinhos para TikTok Shop: escolhe produtos, gera vídeos e publica no TikTok, Instagram e Telegram."
+requires-python = ">=3.11"
+dependencies = ["anthropic>=2.3.0"]
+
+[project.optional-dependencies]
+voz = ["edge-tts"]
+dev = ["pytest"]
+
+[project.scripts]
+achadinhos = "achadinhos.cli:main"
+
+[tool.setuptools]
+packages = ["achadinhos", "achadinhos.publicar"]
